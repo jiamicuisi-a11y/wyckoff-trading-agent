@@ -65,6 +65,30 @@ Then open the dashboard, pick a symbol and timeframe, and the agent analyses liv
 
 The agent stays defensive through a Markdown phase and outperforms Buy & Hold by ~48 points — exactly what a Wyckoff-aware agent should do in a downtrend.
 
+## Bitget 合约情绪增强层（差异化能力）
+
+威科夫识别只看现货 K 线，看不到衍生品资金的真实站位。我们额外接入 **Bitget 公开 USDT 永续合约**的三路实时数据，构建一个「合约情绪增强层」，把衍生品的人群拥挤度叠加到威科夫结构判断之上——让每个信号在结构正确之外，再多一层「情绪是否共振」的确认。
+
+**用到的 Bitget 公开接口**（均无需 API key，纯 GET，`productType=usdt-futures`）：
+
+| 维度 | 接口 | 取值 |
+|---|---|---|
+| 资金费率 | `/api/v2/mix/market/current-fund-rate` | `data[0].fundingRate` |
+| 持仓量 OI | `/api/v2/mix/market/open-interest` | `data.openInterestList[0].size` |
+| 账户多空比 | `/api/v2/mix/market/account-long-short` (period=`1H`) | `data[].longAccountRatio` / `shortAccountRatio` |
+
+符号映射：现货 `BTCUSDT` → 同名永续合约 `BTCUSDT`。封装在 `lib/sentiment.ts`，带 6s 超时 + 全失败兜底（`return null`），任一接口抖动都不会让威科夫分析崩。
+
+**如何融入威科夫决策**（`scoreSentimentAgainstSignal`，仅作用于最新一根信号）：
+
+- **做空信号** + 资金费率转正偏高（>0.0001）+ 账户多头过热（longRatio>0.6）→ 多头拥挤、为持仓付费，逆向做空得到情绪支持 → 标记 **「情绪共振增强」**，信心 +0.15。
+- **做多信号** + 资金费率为负（<0）+ 账户多头偏低（longRatio<0.5）→ 人群悲观、空头付费，逆向做多得到情绪支持 → 标记 **「情绪共振增强」**。
+- 信号方向与人群极端站位矛盾（如追多时多头已过热）→ 标记 **「情绪背离，谨慎」**，信心 -0.12。
+
+**关键：无前视偏差。** 情绪数据是**当前快照**，不是历史逐 K 线序列，因此只用于「最新信号的解读增强 + 面板展示」，**绝不写入历史回测路径**——回测的收益/胜率/夏普完全由现货 K 线 + 威科夫规则决定，保持可复现、无未来函数。
+
+前端 `app/page.tsx` 新增「Bitget 合约情绪」卡片：资金费率（标注正负含义）、持仓量、多空比条形（多头/空头占比）、情绪基调徽章，以及一句针对当前威科夫阶段的情绪解读。
+
 ## Disclaimer
 
 Research and educational tool. Not financial advice. Backtest results do not guarantee future performance.

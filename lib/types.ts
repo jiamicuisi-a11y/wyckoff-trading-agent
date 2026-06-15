@@ -115,6 +115,44 @@ export interface MatrixRow {
   error?: string;
 }
 
+// ---------- Bitget contract sentiment enhancement layer ----------
+
+export type SentimentTone = "bullish" | "bearish" | "neutral";
+
+/**
+ * Current contract-market sentiment snapshot for a symbol, pulled from
+ * Bitget public USDT-futures endpoints (no API key). This is a *current*
+ * snapshot — it is NOT historical per-candle data, so it is only used to
+ * enhance interpretation/display of the latest signals, never to drive the
+ * historical backtest (avoids look-ahead bias).
+ */
+export interface SentimentSnapshot {
+  symbol: string; // futures symbol, e.g. BTCUSDT
+  fundingRate: number; // e.g. -0.000137 (per funding interval)
+  fundingRateInterval: number | null; // hours between funding settlements
+  openInterest: number; // contracts/base units of open interest
+  longAccountRatio: number; // 0..1, share of accounts net long
+  shortAccountRatio: number; // 0..1, share of accounts net short
+  longShortRatio: number; // longAccountRatio / shortAccountRatio
+  tone: SentimentTone; // overall crowd positioning read
+  reading: string; // one-line plain-language interpretation
+  fetchedAt: string; // ISO timestamp of snapshot
+}
+
+/**
+ * How the current sentiment snapshot interacts with the most recent Wyckoff
+ * trade signal — resonance (sentiment confirms) vs divergence (sentiment
+ * contradicts). Used purely for display + confidence annotation.
+ */
+export interface SentimentSignalRead {
+  signalIndex: number; // index of the latest signal this applies to
+  direction: SignalDirection;
+  alignment: "resonance" | "divergence" | "neutral";
+  confidenceDelta: number; // suggested confidence adjustment, e.g. +0.15
+  label: string; // e.g. "情绪共振增强" / "情绪背离，谨慎"
+  detail: string; // explanation of the resonance/divergence
+}
+
 export interface AnalyzeResponse {
   symbol: string;
   granularity: string;
@@ -124,5 +162,7 @@ export interface AnalyzeResponse {
   signals: TradeSignal[];
   backtest: BacktestResult;
   riskConfig: RiskConfig;
+  sentiment: SentimentSnapshot | null; // current Bitget contract sentiment (null if fetch failed)
+  sentimentRead: SentimentSignalRead | null; // how sentiment reads against the latest signal
   generatedAt: string;
 }

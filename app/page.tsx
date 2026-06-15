@@ -9,6 +9,8 @@ import type {
   TradeSignal,
   ClosedTrade,
   MatrixRow,
+  SentimentSnapshot,
+  SentimentSignalRead,
 } from "../lib/types";
 
 type FullResponse = AnalyzeResponse & { currentPhase: string };
@@ -203,6 +205,13 @@ export default function Home() {
               </div>
             </section>
 
+            <SentimentCard
+              sentiment={data.sentiment}
+              read={data.sentimentRead}
+              currentPhase={PHASE_CN[data.currentPhase] || data.currentPhase}
+              symbol={data.symbol}
+            />
+
             <div className="grid-2">
               <section className="card">
                 <div className="card-head">
@@ -350,6 +359,144 @@ export default function Home() {
         )}
       </main>
     </div>
+  );
+}
+
+function SentimentCard({
+  sentiment,
+  read,
+  currentPhase,
+  symbol,
+}: {
+  sentiment: SentimentSnapshot | null;
+  read: SentimentSignalRead | null;
+  currentPhase: string;
+  symbol: string;
+}) {
+  const toneClass: Record<string, string> = {
+    bullish: "senti-bullish",
+    bearish: "senti-bearish",
+    neutral: "senti-neutral",
+  };
+  const toneLabel: Record<string, string> = {
+    bullish: "偏多 Bullish",
+    bearish: "偏空 Bearish",
+    neutral: "中性 Neutral",
+  };
+  const alignClass: Record<string, string> = {
+    resonance: "tag-long",
+    divergence: "tag-short",
+    neutral: "tag-neutral",
+  };
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>Bitget 合约情绪</h2>
+        <span className="muted">
+          {sentiment
+            ? `${symbol} 永续 · usdt-futures 实时快照`
+            : "合约接口暂不可用"}
+        </span>
+      </div>
+
+      {!sentiment ? (
+        <p className="muted">
+          Bitget 合约公开接口本次未返回数据（已做容错，不影响上方威科夫分析）。
+        </p>
+      ) : (
+        <>
+          <div className="senti-grid">
+            <div className="senti-cell">
+              <span className="senti-label">资金费率 Funding</span>
+              <span
+                className={`senti-value ${
+                  sentiment.fundingRate > 0
+                    ? "neg"
+                    : sentiment.fundingRate < 0
+                    ? "pos"
+                    : ""
+                }`}
+              >
+                {(sentiment.fundingRate * 100).toFixed(4)}%
+              </span>
+              <span className="senti-note">
+                {sentiment.fundingRate > 0
+                  ? "正值：多头付费，情绪偏热"
+                  : sentiment.fundingRate < 0
+                  ? "负值：空头付费，多头偏弱/超卖"
+                  : "接近中性"}
+                {sentiment.fundingRateInterval
+                  ? ` · 每 ${sentiment.fundingRateInterval}h 结算`
+                  : ""}
+              </span>
+            </div>
+
+            <div className="senti-cell">
+              <span className="senti-label">持仓量 OI</span>
+              <span className="senti-value">
+                {sentiment.openInterest.toLocaleString("en-US", {
+                  maximumFractionDigits: 0,
+                })}
+              </span>
+              <span className="senti-note">未平仓合约总量（张/币）</span>
+            </div>
+
+            <div className="senti-cell">
+              <span className="senti-label">账户多空比 L/S</span>
+              <span className="senti-value">
+                {sentiment.longShortRatio.toFixed(3)}
+              </span>
+              <span className="senti-note">
+                多 {(sentiment.longAccountRatio * 100).toFixed(1)}% / 空{" "}
+                {(sentiment.shortAccountRatio * 100).toFixed(1)}%
+              </span>
+            </div>
+
+            <div className="senti-cell">
+              <span className="senti-label">情绪基调 Tone</span>
+              <span
+                className={`senti-badge ${toneClass[sentiment.tone] || "senti-neutral"}`}
+              >
+                {toneLabel[sentiment.tone] || sentiment.tone}
+              </span>
+            </div>
+          </div>
+
+          <div className="senti-bar-wrap">
+            <div className="senti-bar">
+              <div
+                className="senti-bar-long"
+                style={{ width: `${sentiment.longAccountRatio * 100}%` }}
+              >
+                多 {(sentiment.longAccountRatio * 100).toFixed(1)}%
+              </div>
+              <div
+                className="senti-bar-short"
+                style={{ width: `${sentiment.shortAccountRatio * 100}%` }}
+              >
+                空 {(sentiment.shortAccountRatio * 100).toFixed(1)}%
+              </div>
+            </div>
+          </div>
+
+          <div className="senti-read">
+            <p className="senti-read-line">
+              <b>对当前「{currentPhase}」阶段的解读：</b>
+              {sentiment.reading}
+            </p>
+            {read && (
+              <div className="senti-signal">
+                <span className={`tag ${alignClass[read.alignment] || "tag-neutral"}`}>
+                  {read.label}
+                </span>
+                <span className="senti-signal-detail">{read.detail}</span>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

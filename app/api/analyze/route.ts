@@ -3,6 +3,10 @@ import { fetchCandles, VALID_GRANULARITIES } from "../../../lib/bitget";
 import { analyzeWyckoff } from "../../../lib/wyckoff";
 import { generateSignals, DEFAULT_RISK } from "../../../lib/strategy";
 import { runBacktest } from "../../../lib/backtest";
+import {
+  fetchSentiment,
+  scoreSentimentAgainstSignal,
+} from "../../../lib/sentiment";
 import type { AnalyzeResponse } from "../../../lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +64,14 @@ export async function POST(req: Request) {
     const signals = generateSignals(candles, wyckoff.structurePoints, DEFAULT_RISK);
     const backtest = runBacktest(candles, signals, DEFAULT_RISK);
 
+    // Sentiment enhancement layer: pull the CURRENT Bitget contract sentiment
+    // snapshot (funding / OI / long-short ratio) and read it against the latest
+    // signal. This is snapshot-only — it never touches the historical backtest,
+    // so no look-ahead bias is introduced. Fetch is fault-tolerant: if Bitget
+    // contract endpoints fail, sentiment is null and the analysis still returns.
+    const sentiment = await fetchSentiment(symbol, "1H");
+    const sentimentRead = scoreSentimentAgainstSignal(signals, sentiment);
+
     const payload: AnalyzeResponse & { currentPhase: string } = {
       symbol,
       granularity,
@@ -69,6 +81,8 @@ export async function POST(req: Request) {
       signals,
       backtest,
       riskConfig: DEFAULT_RISK,
+      sentiment,
+      sentimentRead,
       currentPhase: wyckoff.currentPhase,
       generatedAt: new Date().toISOString(),
     };
