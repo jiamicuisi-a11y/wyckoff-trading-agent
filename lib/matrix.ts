@@ -3,18 +3,18 @@ import { fetchCandles } from "./bitget";
 import { analyzeWyckoff } from "./wyckoff";
 import { generateSignals, DEFAULT_RISK } from "./strategy";
 import { runBacktest } from "./backtest";
+import { SUPPORTED_SYMBOLS } from "./symbols";
 
 /**
- * Multi-symbol x multi-timeframe backtest matrix.
+ * 多币种 × 多周期回测矩阵。
  *
- * Runs the same deterministic Wyckoff strategy across several markets and
- * timeframes to demonstrate the edge is not over-fit to a single series.
- * Bitget public API is rate-limited, so requests are issued serially with a
- * small delay between them.
+ * 同一套确定性威科夫规则跨多个主流币种与周期运行，证明策略不是对单一币种过拟合。
+ * Bitget 公开 API 有限流，请求串行发出并在每次之间留间隔。10+ 币种跑多周期会比较慢，
+ * 因此默认只跑日线那一档（DEFAULT_GRANS = ["1day"]）以控制耗时；前端/接口可显式传入更多周期。
  */
 
-const DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
-const DEFAULT_GRANS = ["1day", "4h"];
+const DEFAULT_SYMBOLS = [...SUPPORTED_SYMBOLS];
+const DEFAULT_GRANS = ["1day"]; // 默认只跑日线，减少多币种矩阵耗时与限流风险
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,8 +35,13 @@ export async function runBacktestMatrix(
         if (candles.length < 60) {
           rows.push(emptyRow(symbol, granularity, "K线数据不足"));
         } else {
-          const wyckoff = analyzeWyckoff(candles);
-          const signals = generateSignals(candles, wyckoff.structurePoints, risk);
+          const wyckoff = analyzeWyckoff(candles, granularity);
+          const signals = generateSignals(
+            candles,
+            wyckoff.structurePoints,
+            risk,
+            granularity
+          );
           const bt = runBacktest(candles, signals, risk);
           rows.push({
             symbol,
@@ -53,8 +58,8 @@ export async function runBacktestMatrix(
       } catch (err: any) {
         rows.push(emptyRow(symbol, granularity, err?.message || "拉取失败"));
       }
-      // gentle pacing to respect Bitget rate limits
-      await sleep(250);
+      // 适度限速，尊重 Bitget 限流（10+ 币种串行，间隔放大一些）
+      await sleep(300);
     }
   }
 

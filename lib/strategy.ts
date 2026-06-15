@@ -33,9 +33,10 @@ export const DEFAULT_RISK: RiskConfig = {
 export function generateSignals(
   candles: Candle[],
   structures: StructurePoint[],
-  risk: RiskConfig = DEFAULT_RISK
+  risk: RiskConfig = DEFAULT_RISK,
+  granularity = "1day"
 ): TradeSignal[] {
-  const ctx = computeContext(candles);
+  const ctx = computeContext(candles, granularity);
   const signals: TradeSignal[] = [];
   const TARGET_R = 2.5; // reward:risk target
 

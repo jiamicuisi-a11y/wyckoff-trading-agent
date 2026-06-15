@@ -7,12 +7,13 @@ import {
   fetchSentiment,
   scoreSentimentAgainstSignal,
 } from "../../../lib/sentiment";
+import { SUPPORTED_SYMBOLS, isSupportedSymbol } from "../../../lib/symbols";
 import type { AnalyzeResponse } from "../../../lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const ALLOWED_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+const ALLOWED_SYMBOLS: string[] = [...SUPPORTED_SYMBOLS];
 
 export async function GET() {
   return NextResponse.json({
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
     const granularity = String(body.granularity || "1day");
     let limit = Number(body.limit ?? 300);
 
-    if (!ALLOWED_SYMBOLS.includes(symbol)) {
+    if (!isSupportedSymbol(symbol)) {
       return NextResponse.json(
         { error: `不支持的币种：${symbol}，可选 ${ALLOWED_SYMBOLS.join(", ")}` },
         { status: 400 }
@@ -60,8 +61,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const wyckoff = analyzeWyckoff(candles);
-    const signals = generateSignals(candles, wyckoff.structurePoints, DEFAULT_RISK);
+    const wyckoff = analyzeWyckoff(candles, granularity);
+    const signals = generateSignals(
+      candles,
+      wyckoff.structurePoints,
+      DEFAULT_RISK,
+      granularity
+    );
     const backtest = runBacktest(candles, signals, DEFAULT_RISK);
 
     // Sentiment enhancement layer: pull the CURRENT Bitget contract sentiment

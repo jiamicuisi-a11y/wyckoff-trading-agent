@@ -15,7 +15,18 @@ import type {
 
 type FullResponse = AnalyzeResponse & { currentPhase: string };
 
-const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+const SYMBOLS = [
+  "BTCUSDT",
+  "ETHUSDT",
+  "SOLUSDT",
+  "BNBUSDT",
+  "XRPUSDT",
+  "ADAUSDT",
+  "DOGEUSDT",
+  "AVAXUSDT",
+  "LINKUSDT",
+  "DOTUSDT",
+];
 const GRANS = [
   { v: "1day", label: "日线 1D" },
   { v: "4h", label: "4小时" },
@@ -301,11 +312,11 @@ export default function Home() {
             <section className="card">
               <div className="card-head">
                 <h2>多市场回测矩阵</h2>
-                <span className="muted">BTC/ETH/SOL × 日线/4h · 证明非单币过拟合</span>
+                <span className="muted">10 大主流币 × 日线 · 证明非单币过拟合</span>
               </div>
               <p className="muted" style={{ marginTop: 0 }}>
-                同一套威科夫规则跨 6 个市场×周期运行，已计入手续费 0.06% + 滑点 0.02%（单边约
-                0.08%），入场价采用信号确认后下一根开盘价（无前视偏差）。
+                同一套威科夫规则跨 10 个主流币种（日线）串行运行，已计入手续费 0.06% + 滑点 0.02%（单边约
+                0.08%），入场价采用信号确认后下一根开盘价（无前视偏差）。矩阵默认只跑日线一档以控制耗时与限流。
               </p>
               <button
                 className="btn-primary"
