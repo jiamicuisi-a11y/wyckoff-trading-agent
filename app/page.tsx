@@ -8,6 +8,7 @@ import type {
   StructurePoint,
   TradeSignal,
   ClosedTrade,
+  MatrixRow,
 } from "../lib/types";
 
 type FullResponse = AnalyzeResponse & { currentPhase: string };
@@ -49,6 +50,27 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<FullResponse | null>(null);
+  const [matrix, setMatrix] = useState<MatrixRow[] | null>(null);
+  const [matrixLoading, setMatrixLoading] = useState(false);
+  const [matrixError, setMatrixError] = useState<string | null>(null);
+
+  async function loadMatrix() {
+    setMatrixLoading(true);
+    setMatrixError(null);
+    try {
+      const res = await fetch("/api/matrix");
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || `请求失败 (${res.status})`);
+      }
+      setMatrix(json.rows as MatrixRow[]);
+    } catch (e: any) {
+      setMatrixError(e?.message || "网络错误");
+      setMatrix(null);
+    } finally {
+      setMatrixLoading(false);
+    }
+  }
 
   async function analyze() {
     setLoading(true);
@@ -243,7 +265,7 @@ export default function Home() {
                     <thead>
                       <tr>
                         <th>方向</th><th>入场日期</th><th>入场价</th>
-                        <th>出场日期</th><th>出场价</th><th>结果</th>
+                        <th>出场日期</th><th>出场价</th><th>出场原因</th><th>结果</th>
                         <th>收益%</th><th>R</th>
                       </tr>
                     </thead>
@@ -255,6 +277,7 @@ export default function Home() {
                           <td>{fmt(t.entryPrice)}</td>
                           <td>{fmtDate(t.exitTime)}</td>
                           <td>{fmt(t.exitPrice)}</td>
+                          <td>{t.exitReason}</td>
                           <td className={t.outcome === "win" ? "pos" : "neg"}>{t.outcome === "win" ? "盈利" : "亏损"}</td>
                           <td className={t.pnlPct >= 0 ? "pos" : "neg"}>{fmt(t.pnlPct)}</td>
                           <td className={t.rMultiple >= 0 ? "pos" : "neg"}>{fmt(t.rMultiple, 2)}</td>
@@ -265,6 +288,60 @@ export default function Home() {
                 </div>
               </section>
             )}
+
+            <section className="card">
+              <div className="card-head">
+                <h2>多市场回测矩阵</h2>
+                <span className="muted">BTC/ETH/SOL × 日线/4h · 证明非单币过拟合</span>
+              </div>
+              <p className="muted" style={{ marginTop: 0 }}>
+                同一套威科夫规则跨 6 个市场×周期运行，已计入手续费 0.06% + 滑点 0.02%（单边约
+                0.08%），入场价采用信号确认后下一根开盘价（无前视偏差）。
+              </p>
+              <button
+                className="btn-primary"
+                onClick={loadMatrix}
+                disabled={matrixLoading}
+                style={{ maxWidth: 240 }}
+              >
+                {matrixLoading ? "回测中（串行拉取6组）…" : "运行多市场回测矩阵"}
+              </button>
+              {matrixError && <div className="alert-error">⚠ {matrixError}</div>}
+              {matrix && matrix.length > 0 && (
+                <div className="table-wrap" style={{ marginTop: 16 }}>
+                  <table className="trades">
+                    <thead>
+                      <tr>
+                        <th>币种</th><th>周期</th><th>策略收益%</th>
+                        <th>Buy&Hold%</th><th>胜率%</th><th>盈亏比</th>
+                        <th>最大回撤%</th><th>夏普</th><th>交易数</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {matrix.map((r: MatrixRow, i) => (
+                        <tr key={i}>
+                          <td><b>{r.symbol.replace("USDT", "")}</b></td>
+                          <td>{r.granularity}</td>
+                          {r.error ? (
+                            <td colSpan={7} className="neg">{r.error}</td>
+                          ) : (
+                            <>
+                              <td className={r.totalReturnPct >= 0 ? "pos" : "neg"}>{fmt(r.totalReturnPct)}</td>
+                              <td className={r.buyHoldReturnPct >= 0 ? "pos" : "neg"}>{fmt(r.buyHoldReturnPct)}</td>
+                              <td>{fmt(r.winRate, 1)}</td>
+                              <td>{fmt(r.profitFactor, 2)}</td>
+                              <td className="neg">{fmt(r.maxDrawdownPct)}</td>
+                              <td>{fmt(r.sharpe, 2)}</td>
+                              <td>{r.tradeCount}</td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
             <div className="disclaimer">
               ⚠ 本工具仅用于研究与教育目的，所有信号与回测均为历史模拟，不构成任何投资建议。加密资产风险极高，请勿据此进行真实交易。

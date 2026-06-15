@@ -16,6 +16,8 @@ import { computeContext } from "./wyckoff";
 export const DEFAULT_RISK: RiskConfig = {
   riskPerTradePct: 1.5, // risk 1.5% of equity per trade
   maxConcurrentPositions: 1,
+  feePct: 0.0006, // taker fee 0.06% per side
+  slippagePct: 0.0002, // slippage 0.02% per side
 };
 
 /**
@@ -43,8 +45,15 @@ export function generateSignals(
     const a = ctx.atr[i];
     const atrBuf = Number.isNaN(a) ? c.close * 0.01 : a * 0.5;
 
+    // No look-ahead: a Wyckoff structure is only confirmed on its bar's close,
+    // so the earliest realistic fill is the NEXT bar's open. If the structure
+    // is the last bar (no next bar), we cannot trade it -> drop the signal.
+    const entryIdx = i + 1;
+    if (entryIdx >= candles.length) continue;
+    const entryBar = candles[entryIdx];
+    const entry = entryBar.open;
+
     if (s.bias === "bullish") {
-      const entry = c.close;
       // stop below the structural low (spring low / pullback low) minus buffer
       const stop = Math.min(s.price, c.low) - atrBuf;
       const riskDist = entry - stop;
@@ -52,8 +61,8 @@ export function generateSignals(
       const target = entry + riskDist * TARGET_R;
       const positionPct = positionSize(riskDist, entry, risk.riskPerTradePct);
       signals.push({
-        index: i,
-        time: c.time,
+        index: entryIdx,
+        time: entryBar.time,
         direction: "long",
         entry,
         stop,
@@ -64,7 +73,6 @@ export function generateSignals(
         sourceStructure: s.type,
       });
     } else {
-      const entry = c.close;
       // stop above the structural high (utad high / breakdown) plus buffer
       const stop = Math.max(s.price, c.high) + atrBuf;
       const riskDist = stop - entry;
@@ -72,8 +80,8 @@ export function generateSignals(
       const target = entry - riskDist * TARGET_R;
       const positionPct = positionSize(riskDist, entry, risk.riskPerTradePct);
       signals.push({
-        index: i,
-        time: c.time,
+        index: entryIdx,
+        time: entryBar.time,
         direction: "short",
         entry,
         stop,

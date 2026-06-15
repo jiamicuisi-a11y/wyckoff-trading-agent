@@ -67,10 +67,13 @@ export interface ClosedTrade {
   stop: number;
   target: number;
   outcome: "win" | "loss";
-  pnlPct: number; // return on equity for the trade
+  pnlPct: number; // return on equity for the trade (net of fees & slippage)
   rMultiple: number;
   reason: string;
+  exitReason: ExitReason; // why the position was closed
 }
+
+export type ExitReason = "止盈" | "止损" | "结构失效" | "末尾平仓";
 
 export interface EquityPoint {
   time: number;
@@ -95,6 +98,21 @@ export interface BacktestResult {
 export interface RiskConfig {
   riskPerTradePct: number; // % of equity risked per trade
   maxConcurrentPositions: number;
+  feePct?: number; // taker fee per side, fraction (e.g. 0.0006 = 0.06%)
+  slippagePct?: number; // slippage per side, fraction (e.g. 0.0002 = 0.02%)
+}
+
+export interface MatrixRow {
+  symbol: string;
+  granularity: string;
+  totalReturnPct: number;
+  buyHoldReturnPct: number;
+  winRate: number;
+  profitFactor: number;
+  maxDrawdownPct: number;
+  sharpe: number;
+  tradeCount: number;
+  error?: string;
 }
 
 export interface AnalyzeResponse {

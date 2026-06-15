@@ -5,6 +5,7 @@ import type {
   EquityPoint,
   BacktestResult,
   RiskConfig,
+  ExitReason,
 } from "./types";
 import { DEFAULT_RISK } from "./strategy";
 
@@ -28,6 +29,10 @@ export function runBacktest(
     if (!signalByIndex.has(s.index)) signalByIndex.set(s.index, s);
   }
 
+  // Per-side transaction cost (taker fee + slippage), applied on both entry and exit.
+  const costPerSide =
+    (risk.feePct ?? 0.0006) + (risk.slippagePct ?? 0.0002); // default ~0.08%/side
+
   let equity = 1; // normalized equity, start at 1.0
   const trades: ClosedTrade[] = [];
   const equityCurve: EquityPoint[] = [];
@@ -36,61 +41,107 @@ export function runBacktest(
   interface OpenPos {
     signal: TradeSignal;
     entryIndex: number;
+    trailStop: number; // ratcheting stop for structure-failure exit
+    extreme: number; // best favorable close seen since entry
   }
   let open: OpenPos | null = null;
 
   const firstClose = candles[0].close;
 
+  // Net trade return on equity, including round-trip cost, scaled by position size.
+  const netTradeRet = (
+    sig: TradeSignal,
+    exitPrice: number
+  ): number => {
+    const dir = sig.direction === "long" ? 1 : -1;
+    const priceRet = (dir * (exitPrice - sig.entry)) / sig.entry;
+    const gross = priceRet * sig.positionPct;
+    const cost = sig.positionPct * costPerSide * 2; // entry + exit
+    return gross - cost;
+  };
+
+  const pushTrade = (
+    sig: TradeSignal,
+    entryIndex: number,
+    exitIndex: number,
+    exitTime: number,
+    exitPrice: number,
+    exitReason: ExitReason
+  ) => {
+    const dir = sig.direction === "long" ? 1 : -1;
+    const tradeRet = netTradeRet(sig, exitPrice);
+    equity *= 1 + tradeRet;
+    const riskDist = Math.abs(sig.entry - sig.stop);
+    const rMultiple = riskDist > 0 ? (dir * (exitPrice - sig.entry)) / riskDist : 0;
+    trades.push({
+      direction: sig.direction,
+      entryIndex,
+      entryTime: candles[entryIndex].time,
+      entryPrice: sig.entry,
+      exitIndex,
+      exitTime,
+      exitPrice,
+      stop: sig.stop,
+      target: sig.target,
+      outcome: tradeRet >= 0 ? "win" : "loss",
+      pnlPct: round(tradeRet * 100),
+      rMultiple: round(rMultiple),
+      reason: sig.reason,
+      exitReason,
+    });
+  };
+
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i];
     const prevEquity = equity;
 
-    // Manage open position: check stop/target intrabar (stop checked first = conservative)
+    // Manage open position: check hard stop/target intrabar (stop first = conservative),
+    // then a ratcheting trailing stop on close (structure-failure / give-back exit).
     if (open) {
       const sig = open.signal;
+      const riskDist = Math.abs(sig.entry - sig.stop);
       let exitPrice: number | null = null;
-      let outcome: "win" | "loss" | null = null;
+      let exitReason: ExitReason | null = null;
 
       if (sig.direction === "long") {
         if (c.low <= sig.stop) {
           exitPrice = sig.stop;
-          outcome = "loss";
+          exitReason = "止损";
         } else if (c.high >= sig.target) {
           exitPrice = sig.target;
-          outcome = "win";
+          exitReason = "止盈";
+        } else {
+          // ratchet the trailing stop up as price makes higher closes
+          open.extreme = Math.max(open.extreme, c.close);
+          const candidate = open.extreme - riskDist; // trail one R behind the high
+          if (candidate > open.trailStop) open.trailStop = candidate;
+          // structure failure: only fires once the trail has locked in profit
+          // (i.e. ratcheted strictly above the original stop) and close breaks it
+          if (open.trailStop > sig.stop && c.close < open.trailStop) {
+            exitPrice = c.close;
+            exitReason = "结构失效";
+          }
         }
       } else {
         if (c.high >= sig.stop) {
           exitPrice = sig.stop;
-          outcome = "loss";
+          exitReason = "止损";
         } else if (c.low <= sig.target) {
           exitPrice = sig.target;
-          outcome = "win";
+          exitReason = "止盈";
+        } else {
+          open.extreme = Math.min(open.extreme, c.close);
+          const candidate = open.extreme + riskDist;
+          if (candidate < open.trailStop) open.trailStop = candidate;
+          if (open.trailStop < sig.stop && c.close > open.trailStop) {
+            exitPrice = c.close;
+            exitReason = "结构失效";
+          }
         }
       }
 
-      if (exitPrice !== null && outcome !== null) {
-        const dir = sig.direction === "long" ? 1 : -1;
-        const priceRet = (dir * (exitPrice - sig.entry)) / sig.entry;
-        const tradeRet = priceRet * sig.positionPct; // scaled by position size
-        equity *= 1 + tradeRet;
-        const riskDist = Math.abs(sig.entry - sig.stop);
-        const rMultiple = riskDist > 0 ? (dir * (exitPrice - sig.entry)) / riskDist : 0;
-        trades.push({
-          direction: sig.direction,
-          entryIndex: open.entryIndex,
-          entryTime: candles[open.entryIndex].time,
-          entryPrice: sig.entry,
-          exitIndex: i,
-          exitTime: c.time,
-          exitPrice,
-          stop: sig.stop,
-          target: sig.target,
-          outcome,
-          pnlPct: round(tradeRet * 100),
-          rMultiple: round(rMultiple),
-          reason: sig.reason,
-        });
+      if (exitPrice !== null && exitReason !== null) {
+        pushTrade(sig, open.entryIndex, i, c.time, exitPrice, exitReason);
         open = null;
       }
     }
@@ -99,7 +150,12 @@ export function runBacktest(
     if (!open) {
       const sig = signalByIndex.get(i);
       if (sig) {
-        open = { signal: sig, entryIndex: i };
+        open = {
+          signal: sig,
+          entryIndex: i,
+          trailStop: sig.stop,
+          extreme: sig.entry,
+        };
       }
     }
 
@@ -112,27 +168,7 @@ export function runBacktest(
   if (open) {
     const sig = open.signal;
     const last = candles[candles.length - 1];
-    const dir = sig.direction === "long" ? 1 : -1;
-    const priceRet = (dir * (last.close - sig.entry)) / sig.entry;
-    const tradeRet = priceRet * sig.positionPct;
-    equity *= 1 + tradeRet;
-    const riskDist = Math.abs(sig.entry - sig.stop);
-    const rMultiple = riskDist > 0 ? (dir * (last.close - sig.entry)) / riskDist : 0;
-    trades.push({
-      direction: sig.direction,
-      entryIndex: open.entryIndex,
-      entryTime: candles[open.entryIndex].time,
-      entryPrice: sig.entry,
-      exitIndex: candles.length - 1,
-      exitTime: last.time,
-      exitPrice: last.close,
-      stop: sig.stop,
-      target: sig.target,
-      outcome: tradeRet >= 0 ? "win" : "loss",
-      pnlPct: round(tradeRet * 100),
-      rMultiple: round(rMultiple),
-      reason: sig.reason + "（回测末尾强制平仓）",
-    });
+    pushTrade(sig, open.entryIndex, candles.length - 1, last.time, last.close, "末尾平仓");
     const lastPt = equityCurve[equityCurve.length - 1];
     if (lastPt) lastPt.equity = round4(equity);
   }
