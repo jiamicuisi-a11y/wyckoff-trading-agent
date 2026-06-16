@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchCandles, VALID_GRANULARITIES } from "../../../lib/bitget";
 import { analyzeWyckoff } from "../../../lib/wyckoff";
 import { generateSignals, DEFAULT_RISK } from "../../../lib/strategy";
+import { generateAnomalySignals, DEFAULT_ANOMALY } from "../../../lib/anomaly";
 import { runBacktest } from "../../../lib/backtest";
 import {
   fetchSentiment,
@@ -36,6 +37,7 @@ export async function POST(req: Request) {
 
     const symbol = String(body.symbol || "BTCUSDT").toUpperCase();
     const granularity = String(body.granularity || "1day");
+    const strategy = String(body.strategy || "wyckoff").toLowerCase();
     let limit = Number(body.limit ?? 300);
 
     if (!isSupportedSymbol(symbol)) {
@@ -61,13 +63,30 @@ export async function POST(req: Request) {
       );
     }
 
+    // 威科夫阶段始终计算（A档也用它做背景阶段展示），但信号来源按所选策略分流：
+    // - wyckoff：结构驱动（Spring/SOS/UTAD...）
+    // - anomaly（A档）：多因子异动打分驱动
     const wyckoff = analyzeWyckoff(candles, granularity);
-    const signals = generateSignals(
-      candles,
-      wyckoff.structurePoints,
-      DEFAULT_RISK,
-      granularity
-    );
+
+    let signals;
+    let anomalyAlerts = null;
+    if (strategy === "anomaly") {
+      const res = generateAnomalySignals(
+        candles,
+        granularity,
+        DEFAULT_ANOMALY,
+        DEFAULT_RISK
+      );
+      signals = res.signals;
+      anomalyAlerts = res.latestAlerts;
+    } else {
+      signals = generateSignals(
+        candles,
+        wyckoff.structurePoints,
+        DEFAULT_RISK,
+        granularity
+      );
+    }
     const backtest = runBacktest(candles, signals, DEFAULT_RISK);
 
     // Sentiment enhancement layer: pull the CURRENT Bitget contract sentiment
@@ -78,18 +97,26 @@ export async function POST(req: Request) {
     const sentiment = await fetchSentiment(symbol, "1H");
     const sentimentRead = scoreSentimentAgainstSignal(signals, sentiment);
 
-    const payload: AnalyzeResponse & { currentPhase: string } = {
+    const payload: AnalyzeResponse & {
+      currentPhase: string;
+      strategy: string;
+      anomalyAlerts: typeof anomalyAlerts;
+    } = {
       symbol,
       granularity,
       candles,
+      // 阶段背景始终给（两种策略都在威科夫阶段图上展示）；
+      // 结构点只在威科夫策略下展示，A档不画威科夫结构点。
       phases: wyckoff.phases,
-      structurePoints: wyckoff.structurePoints,
+      structurePoints: strategy === "anomaly" ? [] : wyckoff.structurePoints,
       signals,
       backtest,
       riskConfig: DEFAULT_RISK,
       sentiment,
       sentimentRead,
       currentPhase: wyckoff.currentPhase,
+      strategy,
+      anomalyAlerts,
       generatedAt: new Date().toISOString(),
     };
 

@@ -14,9 +14,11 @@ const GRANS = ["1day"];
  * 同一套确定性威科夫规则跨 10 个主流币种（日线）运行，返回回测指标矩阵，
  * 证明策略并非对单一币种过拟合。
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const rows = await runBacktestMatrix(SYMBOLS, GRANS, 300);
+    const url = new URL(req.url);
+    const strategy = (url.searchParams.get("strategy") || "wyckoff").toLowerCase();
+    const rows = await runBacktestMatrix(SYMBOLS, GRANS, 300, undefined, strategy);
     return NextResponse.json({
       symbols: SYMBOLS,
       granularities: GRANS,

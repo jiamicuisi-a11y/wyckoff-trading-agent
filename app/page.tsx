@@ -34,6 +34,25 @@ const GRANS = [
   { v: "1week", label: "周线 1W" },
 ];
 
+const STRATEGIES = [
+  {
+    v: "wyckoff",
+    name: "威科夫",
+    title: "威科夫交易 Agent",
+    tagline:
+      "基于威科夫方法的确定性规则引擎：识别市场阶段与关键结构，自动生成信号并回测验证。",
+    btn: "运行威科夫分析",
+  },
+  {
+    v: "anomaly",
+    name: "A档异动",
+    title: "A档 · 异动扫描 Agent",
+    tagline:
+      "多因子异动打分（持仓/主动买/价格/放量）+ 正向标签过滤 + 流动性过滤 + 去重冷却，低频高质量地捕捉市场异动。",
+    btn: "运行A档异动分析",
+  },
+];
+
 const PHASE_CN: Record<string, string> = {
   Accumulation: "吸筹 Accumulation",
   Markup: "拉升 Markup",
@@ -60,6 +79,7 @@ function fmtDate(unixSec: number): string {
 export default function Home() {
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [granularity, setGranularity] = useState("1day");
+  const [strategy, setStrategy] = useState("wyckoff");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<FullResponse | null>(null);
@@ -71,7 +91,7 @@ export default function Home() {
     setMatrixLoading(true);
     setMatrixError(null);
     try {
-      const res = await fetch("/api/matrix");
+      const res = await fetch(`/api/matrix?strategy=${strategy}`);
       const json = await res.json();
       if (!res.ok) {
         throw new Error(json.error || `请求失败 (${res.status})`);
@@ -92,7 +112,7 @@ export default function Home() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol, granularity, limit: 300 }),
+        body: JSON.stringify({ symbol, granularity, strategy, limit: 300 }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -107,14 +127,36 @@ export default function Home() {
     }
   }
 
+  const curStrat = STRATEGIES.find((s) => s.v === strategy) || STRATEGIES[0];
+
   return (
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">W</div>
           <div>
-            <div className="brand-name">Wyckoff Agent</div>
-            <div className="brand-sub">威科夫交易智能体</div>
+            <div className="brand-name">Trading Agent</div>
+            <div className="brand-sub">多策略交易智能体</div>
+          </div>
+        </div>
+
+        <div className="control-group">
+          <label className="control-label">策略</label>
+          <div className="seg seg-col">
+            {STRATEGIES.map((s) => (
+              <button
+                key={s.v}
+                className={`seg-item ${strategy === s.v ? "active" : ""}`}
+                onClick={() => {
+                  setStrategy(s.v);
+                  setData(null);
+                  setMatrix(null);
+                  setError(null);
+                }}
+              >
+                {s.name}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -149,7 +191,7 @@ export default function Home() {
         </div>
 
         <button className="btn-primary" onClick={analyze} disabled={loading}>
-          {loading ? "分析中…" : "运行威科夫分析"}
+          {loading ? "分析中…" : curStrat.btn}
         </button>
 
         <div className="sidebar-foot">
@@ -162,10 +204,8 @@ export default function Home() {
         <section className="hero">
           <div className="hero-head">
             <div>
-              <h1 className="hero-title">威科夫交易 Agent</h1>
-              <p className="hero-tagline">
-                基于威科夫方法的确定性规则引擎：识别市场阶段与关键结构，自动生成信号并回测验证。
-              </p>
+              <h1 className="hero-title">{curStrat.title}</h1>
+              <p className="hero-tagline">{curStrat.tagline}</p>
             </div>
             {data && (
               <div className={`phase-badge ${PHASE_CLASS[data.currentPhase] || "badge-undef"}`}>
@@ -189,7 +229,7 @@ export default function Home() {
         {loading && (
           <div className="empty-state">
             <div className="spinner" />
-            <p>正在拉取行情并运行威科夫识别与回测…</p>
+            <p>正在拉取行情并运行{curStrat.name}识别与回测…</p>
           </div>
         )}
 
@@ -197,7 +237,7 @@ export default function Home() {
           <>
             <section className="card">
               <div className="card-head">
-                <h2>K线 · 威科夫阶段与结构</h2>
+                <h2>{strategy === "anomaly" ? "K线 · 异动信号（威科夫阶段背景）" : "K线 · 威科夫阶段与结构"}</h2>
                 <span className="muted">
                   {data.symbol} · {data.granularity} · {data.candles.length} 根
                 </span>
@@ -207,13 +247,19 @@ export default function Home() {
                 phases={data.phases}
                 structurePoints={data.structurePoints}
               />
-              <div className="legend">
-                <span><i className="dot dot-spring" />Spring 弹簧</span>
-                <span><i className="dot dot-sos" />SOS 强势</span>
-                <span><i className="dot dot-lps" />LPS 支撑</span>
-                <span><i className="dot dot-utad" />UTAD 诱多</span>
-                <span><i className="dot dot-sow" />SOW 弱势</span>
-              </div>
+              {strategy === "anomaly" ? (
+                <div className="legend">
+                  <span>背景色块为威科夫阶段，A档信号基于多因子异动打分触发（见下方信号卡）。</span>
+                </div>
+              ) : (
+                <div className="legend">
+                  <span><i className="dot dot-spring" />Spring 弹簧</span>
+                  <span><i className="dot dot-sos" />SOS 强势</span>
+                  <span><i className="dot dot-lps" />LPS 支撑</span>
+                  <span><i className="dot dot-utad" />UTAD 诱多</span>
+                  <span><i className="dot dot-sow" />SOW 弱势</span>
+                </div>
+              )}
             </section>
 
             <SentimentCard
@@ -239,7 +285,7 @@ export default function Home() {
                           <span className={`tag ${s.direction === "long" ? "tag-long" : "tag-short"}`}>
                             {s.direction === "long" ? "做多 LONG" : "做空 SHORT"}
                           </span>
-                          <span className="signal-src">{s.sourceStructure}</span>
+                          <span className="signal-src">{strategy === "anomaly" ? "异动" : s.sourceStructure}</span>
                           <span className="signal-date">{fmtDate(s.time)}</span>
                         </div>
                         <div className="signal-grid">
@@ -315,7 +361,7 @@ export default function Home() {
                 <span className="muted">10 大主流币 × 日线 · 证明非单币过拟合</span>
               </div>
               <p className="muted" style={{ marginTop: 0 }}>
-                同一套威科夫规则跨 10 个主流币种（日线）串行运行，已计入手续费 0.06% + 滑点 0.02%（单边约
+                同一套{curStrat.name}规则跨 10 个主流币种（日线）串行运行，已计入手续费 0.06% + 滑点 0.02%（单边约
                 0.08%），入场价采用信号确认后下一根开盘价（无前视偏差）。矩阵默认只跑日线一档以控制耗时与限流。
               </p>
               <button

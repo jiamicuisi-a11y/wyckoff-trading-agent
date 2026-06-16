@@ -2,6 +2,7 @@ import type { MatrixRow, RiskConfig } from "./types";
 import { fetchCandles } from "./bitget";
 import { analyzeWyckoff } from "./wyckoff";
 import { generateSignals, DEFAULT_RISK } from "./strategy";
+import { generateAnomalySignals, DEFAULT_ANOMALY } from "./anomaly";
 import { runBacktest } from "./backtest";
 import { SUPPORTED_SYMBOLS } from "./symbols";
 
@@ -24,7 +25,8 @@ export async function runBacktestMatrix(
   symbols: string[] = DEFAULT_SYMBOLS,
   granularities: string[] = DEFAULT_GRANS,
   limit = 300,
-  risk: RiskConfig = DEFAULT_RISK
+  risk: RiskConfig = DEFAULT_RISK,
+  strategy = "wyckoff"
 ): Promise<MatrixRow[]> {
   const rows: MatrixRow[] = [];
 
@@ -35,13 +37,23 @@ export async function runBacktestMatrix(
         if (candles.length < 60) {
           rows.push(emptyRow(symbol, granularity, "K线数据不足"));
         } else {
-          const wyckoff = analyzeWyckoff(candles, granularity);
-          const signals = generateSignals(
-            candles,
-            wyckoff.structurePoints,
-            risk,
-            granularity
-          );
+          let signals;
+          if (strategy === "anomaly") {
+            signals = generateAnomalySignals(
+              candles,
+              granularity,
+              DEFAULT_ANOMALY,
+              risk
+            ).signals;
+          } else {
+            const wyckoff = analyzeWyckoff(candles, granularity);
+            signals = generateSignals(
+              candles,
+              wyckoff.structurePoints,
+              risk,
+              granularity
+            );
+          }
           const bt = runBacktest(candles, signals, risk);
           rows.push({
             symbol,
