@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import WyckoffChart from "./WyckoffChart";
+import AnomalyScanner from "./AnomalyScanner";
 import type {
   AnalyzeResponse,
   PhaseSegment,
@@ -46,10 +47,10 @@ const STRATEGIES = [
   {
     v: "anomaly",
     name: "A档异动",
-    title: "A档 · 异动扫描 Agent",
+    title: "A档 · 实时异动扫描",
     tagline:
-      "多因子异动打分（持仓/主动买/价格/放量）+ 正向标签过滤 + 流动性过滤 + 去重冷却，低频高质量地捕捉市场异动。",
-    btn: "运行A档异动分析",
+      "实时拉取 Bitget 全市场永续合约（OI/资金费率/盘口买卖压/价格/成交额），多因子异动打分 + 正向标签判方向，扫出当下正在异动的 Top5。可开自动刷新。",
+    btn: "立即扫描",
   },
 ];
 
@@ -160,39 +161,43 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="control-group">
-          <label className="control-label">交易对</label>
-          <div className="seg">
-            {SYMBOLS.map((s) => (
-              <button
-                key={s}
-                className={`seg-item ${symbol === s ? "active" : ""}`}
-                onClick={() => setSymbol(s)}
-              >
-                {s.replace("USDT", "")}
-              </button>
-            ))}
-          </div>
-        </div>
+        {strategy !== "anomaly" && (
+          <>
+            <div className="control-group">
+              <label className="control-label">交易对</label>
+              <div className="seg">
+                {SYMBOLS.map((s) => (
+                  <button
+                    key={s}
+                    className={`seg-item ${symbol === s ? "active" : ""}`}
+                    onClick={() => setSymbol(s)}
+                  >
+                    {s.replace("USDT", "")}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        <div className="control-group">
-          <label className="control-label">周期</label>
-          <div className="seg seg-col">
-            {GRANS.map((g) => (
-              <button
-                key={g.v}
-                className={`seg-item ${granularity === g.v ? "active" : ""}`}
-                onClick={() => setGranularity(g.v)}
-              >
-                {g.label}
-              </button>
-            ))}
-          </div>
-        </div>
+            <div className="control-group">
+              <label className="control-label">周期</label>
+              <div className="seg seg-col">
+                {GRANS.map((g) => (
+                  <button
+                    key={g.v}
+                    className={`seg-item ${granularity === g.v ? "active" : ""}`}
+                    onClick={() => setGranularity(g.v)}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        <button className="btn-primary" onClick={analyze} disabled={loading}>
-          {loading ? "分析中…" : curStrat.btn}
-        </button>
+            <button className="btn-primary" onClick={analyze} disabled={loading}>
+              {loading ? "分析中…" : curStrat.btn}
+            </button>
+          </>
+        )}
 
         <div className="sidebar-foot">
           <p>感知 → 决策 → 执行 → 风控 全闭环</p>
@@ -207,7 +212,7 @@ export default function Home() {
               <h1 className="hero-title">{curStrat.title}</h1>
               <p className="hero-tagline">{curStrat.tagline}</p>
             </div>
-            {data && (
+            {strategy !== "anomaly" && data && (
               <div className={`phase-badge ${PHASE_CLASS[data.currentPhase] || "badge-undef"}`}>
                 <span className="phase-badge-label">当前阶段</span>
                 <span className="phase-badge-value">
@@ -218,22 +223,24 @@ export default function Home() {
           </div>
         </section>
 
-        {error && <div className="alert-error">⚠ {error}</div>}
+        {strategy === "anomaly" && <AnomalyScanner />}
 
-        {!data && !loading && !error && (
+        {strategy !== "anomaly" && error && <div className="alert-error">⚠ {error}</div>}
+
+        {strategy !== "anomaly" && !data && !loading && !error && (
           <div className="empty-state">
             <p>选择交易对与周期，点击「运行威科夫分析」开始。</p>
           </div>
         )}
 
-        {loading && (
+        {strategy !== "anomaly" && loading && (
           <div className="empty-state">
             <div className="spinner" />
             <p>正在拉取行情并运行{curStrat.name}识别与回测…</p>
           </div>
         )}
 
-        {data && (
+        {strategy !== "anomaly" && data && (
           <>
             <section className="card">
               <div className="card-head">
